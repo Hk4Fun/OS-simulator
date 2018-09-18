@@ -1,0 +1,5 @@
+.idea
+doc
+__pycache__
+todo.txt
+log.txt
