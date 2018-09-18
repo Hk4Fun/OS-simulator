@@ -91,6 +91,13 @@ class PCB:
         return pid
 
 
+class Frame:
+    pass
+
+class PageTable:
+    pass
+
+
 class TableController:
     def __init__(self, table, content_each_line):
         self.table = table
