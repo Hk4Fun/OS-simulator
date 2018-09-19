@@ -4,6 +4,7 @@ import time
 import threading
 import functools
 import logging
+from collections import namedtuple
 from abc import ABCMeta, abstractmethod
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QTableWidgetItem
@@ -11,7 +12,6 @@ from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QTimer, QThread
 
 import mainwindow
-import name_generator
 from settings import *
 
 COLOR_MEMORY = QtGui.QColor(*COLOR_MEMORY)
@@ -150,20 +150,6 @@ class PCB:
         return res
 
     @staticmethod
-    def random():
-        """
-        Generate a random job
-
-        :return: a random job object
-        """
-        pid = PCB.generate_pid()
-        name = name_generator.gen_one_word_digit(lowercase=False)
-        priority = random.randint(1, 7)
-        required_time = random.randint(200, 1000)
-        used_PIDs.add(pid)
-        return PCB(pid, name, priority, required_time)
-
-    @staticmethod
     def generate_pid():
         """
         Generate a random PID number
@@ -187,6 +173,7 @@ class PCB:
         self.pc += 1
         ready_pool.slotChangePC(self)
         memory.access(self, page_num)
+        ready_pool.slotChangePageRate(self)
         self.start(code)
         code.exec(self)
 
@@ -209,6 +196,7 @@ class TableController:
         self.content_each_line = content_each_line
         self.table.itemDoubleClicked.connect(self.itemDoubleClickedSlot)
         self.lock = threading.Lock()
+        self.last_running_line = -1
 
     @mutex_lock
     def append(self, process):
@@ -223,7 +211,11 @@ class TableController:
             content = eval('process.' + self.content_each_line[j])
             if j == 3:
                 # Special for priority column
-                item = QTableWidgetItem(str('{:.2f}'.format(float(content))))
+                item = QTableWidgetItem('{:.2f}'.format(float(content)))
+            elif j == 9:
+                # for page fault rate
+                item = QTableWidgetItem(
+                    '{:.2f}%'.format(0 if process.references == 0 else process.page_faults / process.references * 100))
             else:
                 item = QTableWidgetItem(str(content))
             self.table.setItem(self.table.rowCount() - 1, j, item)  # Add item to table
@@ -261,14 +253,19 @@ class TableController:
 
         for i in range(0, self.table.rowCount()):
             if self.table.item(i, 0).text() == str(process_id):
-                if column == 3:
+                if column == 3:  # for priority
                     new_text = '{:.2f}'.format(float(new_text))
                 new_item = QTableWidgetItem(new_text)
                 new_item.setBackground(QtGui.QColor(252, 222, 156))
                 self.table.setItem(i, column, new_item)
                 if new_text == 'running':
+                    if self.last_running_line != -1:  # clear last running line
+                        for j in range(self.table.columnCount()):
+                            self.table.item(self.last_running_line, j).setBackground(QtGui.QColor(0, 0, 0, 0))
+                    # pain new running line
                     for j in range(self.table.columnCount()):
                         self.table.item(i, j).setBackground(QtGui.QColor(0, 255, 255))
+                    self.last_running_line = i
 
     def itemDoubleClickedSlot(self, item):
         """
@@ -442,7 +439,10 @@ class SuspendPool(Pool):
                    'priority',
                    'required_memory',
                    'address',
-                   'pc']
+                   'pc',
+                   'references',
+                   'page_faults',
+                   'page_faults']
         self.table_controller = SuspendTableController(table=table, content_each_line=content)
 
 
@@ -456,7 +456,10 @@ class ReadyPool(Pool):
                    'priority',
                    'required_memory',
                    'address',
-                   'pc']
+                   'pc',
+                   'references',
+                   'page_faults',
+                   'page_faults']
         self.table_controller = ReadyTableController(table=table, content_each_line=content)
         self.scheduling_mode = scheduling_mode
         self.max = max
@@ -534,6 +537,13 @@ class ReadyPool(Pool):
     def slotChangePC(self, process):
         self.editTableSignal.emit(self.table_controller, process.pid, 6, str(process.pc))
 
+    def slotChangePageRate(self, process):
+        self.editTableSignal.emit(self.table_controller, process.pid, 7, str(process.references))
+        self.editTableSignal.emit(self.table_controller, process.pid, 8, str(process.page_faults))
+        self.editTableSignal.emit(self.table_controller, process.pid, 9,
+                                  '{:.2f}%'.format(
+                                      0 if process.references == 0 else process.page_faults / process.references * 100))
+
 
 class Memory(QtCore.QObject):
     memory_edit_signal = QtCore.pyqtSignal("QString", int)
@@ -544,8 +554,11 @@ class Memory(QtCore.QObject):
         self.lock = threading.Lock()
         self.free_frames = list(range(TOTAL_MEM))
         self.memory_edit_signal.connect(UI_main_window.slotMemoryTableEdit)
+        self.references = 0
+        self.page_faults = 0
+        self.init_memory_bar()
 
-        # Init table widget
+    def init_memory_bar(self):
         for i in range(0, TOTAL_MEM):
             self.table.setRowCount(self.table.rowCount() + 1)
             item = QTableWidgetItem(" ")
@@ -558,6 +571,7 @@ class Memory(QtCore.QObject):
     @mutex_lock
     def access(self, process, page_num):
         process.references += 1
+        self.references += 1
         if self.already_in_memory(process, page_num):
             # update the reference time
             process.page_table[page_num].recent_access_time = time.time()
@@ -566,6 +580,7 @@ class Memory(QtCore.QObject):
                 "{} requests page {}. This page is already in memory frame {}".format(process.name, page_num, frame))
         else:
             # PAGE FAULT!!!!
+            self.page_faults += 1
             process.page_faults += 1
             free_frame = self.get_frame()
             self._edit_table_widget("allocate", free_frame)
@@ -583,22 +598,25 @@ class Memory(QtCore.QObject):
 
     def replace_by_lru(self):
         frames_in_memory = []
+        item = namedtuple('item', ['process', 'page_num', 'pte'])
         for process in ready_pool:
-            for pte in process.page_table.values():
+            for page_num, pte in process.page_table.items():
                 if pte.valid_bit:
-                    frames_in_memory.append(pte)
+                    frames_in_memory.append(item(process, page_num, pte))
         # find the oldest / lru of the frames in memory
         lru = frames_in_memory[0]
-        for frame in frames_in_memory:
-            if frame.recent_access_time < lru.recent_access_time:
-                lru = frame
+        for item in frames_in_memory:
+            if item.pte.recent_access_time < lru.pte.recent_access_time:
+                lru = item
         # remove lru frame from physical memory
-        self._edit_table_widget("free", lru.frame)
+        self._edit_table_widget("free", lru.pte.frame)
+        # remove lru page from process's page table
+        lru.process.page_table.pop(lru.page_num)
         # add free frame to free list
-        self.free_frames.append(lru.frame)
+        self.free_frames.append(lru.pte.frame)
         # set the valid bit of the removed page to False
-        lru.valid_bit = False
-        logger.info('lru occurred: frame {} out'.format(lru.frame))
+        lru.pte.valid_bit = False
+        logger.info('lru occurred: frame {} out'.format(lru.pte.frame))
 
     @mutex_lock
     def free(self, process):
@@ -634,7 +652,6 @@ class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
 
         # Connect slots
         self.StartButton.clicked.connect(self.slotStartButton)
-        self.GenerateJobButton.clicked.connect(self.slotGenerateJobButton)
         self.AddJobButton.clicked.connect(self.slotAddJobButton)
         self.DaoshuBox.valueChanged.connect(self.slotMaxWaitingChanged)
 
@@ -659,11 +676,6 @@ class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
         # Start thread
         self.st.start()
         self.lt.start()
-
-    def slotGenerateJobButton(self):
-        for i in range(self.RandomCountBox.value()):
-            random_process = PCB.random()
-            job_pool.add(random_process)
 
     def slotAddJobButton(self):
 
@@ -709,11 +721,15 @@ class Shortterm(QThread):
 
     def refreshStatus(self):
         UI_main_window.label_job.setText(str(job_pool.num))
-        UI_main_window.label_ready.setText(str(ready_pool.num - 1))  # except running
+        UI_main_window.label_ready.setText(str(ready_pool.num - 1 if ready_pool.num > 0 else 0))  # except running
         UI_main_window.label_suspended.setText(str(suspend_pool.num))
         UI_main_window.label_terminated.setText(str(terminated_pool.num))
         UI_main_window.label_memory.setText(
             '{:.2f}% ({}/{})'.format(memory.used / TOTAL_MEM * 100, memory.used, TOTAL_MEM))
+        UI_main_window.label_references.setText(str(memory.references))
+        UI_main_window.label_page_faults.setText(str(memory.page_faults))
+        UI_main_window.label_fault_rate.setText(
+            '{:.2f}%'.format(0 if memory.references == 0 else memory.page_faults / memory.references * 100))
 
     def manage_process(self, process, ready_pl):
         if process.code_exec_status is None:
@@ -728,18 +744,18 @@ class Shortterm(QThread):
         if not hasattr(process, 'timer'):
             process.timer = QTimer()
             process.timer.setSingleShot(True)
-            process.timer.timeout.connect(process.exec_next_code)
+            # process.timer.timeout.connect(process.exec_next_code) # useless
             process.remain_time = 0
 
     def run(self):
         while True:
+            self.refreshStatus()
             if self.ready_pl.num > 0:
                 processing_job = self.ready_pl.get()
                 self.create_timer(processing_job)
                 processing_job.status = 'running'
                 logger.info('Running {0}...'.format(processing_job.name))
                 self.ready_pl.change_priority(processing_job)
-                self.refreshStatus()
                 self.manage_process(processing_job, self.ready_pl)
             time.sleep(0.001)
 
