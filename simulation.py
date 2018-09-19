@@ -8,6 +8,7 @@ from abc import ABCMeta, abstractmethod
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QTableWidgetItem
 from PyQt5 import QtCore, QtGui
+from PyQt5.QtCore import QTimer, QThread
 
 import mainwindow
 import name_generator
@@ -36,32 +37,117 @@ def mutex_lock(func):
     return wrapper
 
 
+class Code(metaclass=ABCMeta):
+    @abstractmethod
+    def exec(self, process):
+        pass
+
+
+class C(Code):
+    def __init__(self, exectime):
+        self.exectime = exectime
+
+    def exec(self, process):
+        pass
+
+
+class K(Code):
+    def __init__(self, exectime):
+        self.exectime = exectime
+
+    def exec(self, process):
+        pass
+
+
+class P(Code):
+    def __init__(self, exectime):
+        self.exectime = exectime
+
+    def exec(self, process):
+        pass
+
+
+class R(Code):
+    def __init__(self, filename, exectime):
+        self.filename = filename
+        self.exectime = exectime
+
+    def exec(self, process):
+        pass
+
+
+class W(Code):
+    def __init__(self, filename, exectime, size):
+        self.filename = filename
+        self.exectime = exectime
+        self.size = size
+
+    def exec(self, process):
+        pass
+
+
+class M(Code):
+    def __init__(self, memsize):
+        self.memsize = memsize
+
+    def exec(self, process):
+        pass
+
+
+class Y(Code):
+    def __init__(self, priority):
+        self.priority = priority
+
+    def exec(self, process):
+        pass
+
+
+class Q(Code):
+    def exec(self, process):
+        logger.info('{0} terminated'.format(process.name))
+        ready_pool.remove(process.pid)  # remove job from waiting list
+        memory.free(process)  # free memory
+        terminated_pool.add(process)  # add to terminated pool
+        if len(ready_pool._pool) == 0:
+            ready_pool.running_label_change_signal.emit("")
+
+
+instructions = {'C': C, 'K': K, 'P': P, 'R': R, 'W': W, 'M': M, 'Y': Y, 'Q': Q}
+
+
+class PTE:
+    __slots__ = ['frame', 'recent_access_time', 'valid_bit']
+
+    def __init__(self, frame, recent_access_time, valid_bit):
+        self.frame = frame
+        self.recent_access_time = recent_access_time
+        self.valid_bit = valid_bit
+
+
 class PCB:
-    def __init__(self, pid, name="process", priority=1, required_time=200):
+    def __init__(self, pid, name=None, priority=4, required_memory=10, codes=''):
         self.pid = pid
-        self.name = name if name else "process"
-        self.priority = priority if priority else 1
-        self.required_time = required_time if required_time else 200
+        self.name = name if name else "P{}".format(pid)
+        self.priority = priority
         self.status = 'new'
         self.address = hex(id(self))
         self.age = 0
-        self.required_memory = random.randint(1, 10)
-        self.allocated_memory_start = None
+        self.required_memory = required_memory
+        self.codes = self.translate(codes)
+        self.pc = 0
+        self.page_table = {}
+        self.references = 0
+        self.page_faults = 0
+        self.code_exec_status = None  # new, running, stopped
 
-    def __str__(self):
-        print("<PCB {0} {2}[{1}]> priority:".format(str(self.pid),
-                                                    str(self.status),
-                                                    self.name), end='')
-        print("{0}".format(str(self.priority)), end='')
-        print(" need_time:{0} address:{1}".format(str(self.required_time), self.address), end='')
-        return ''
-
-    def __repr__(self):
-        return "<PCB {0} {3}[{1}]> priority:{2} need_time:{4}".format(str(self.pid),
-                                                                      str(self.status),
-                                                                      str(self.priority),
-                                                                      self.name,
-                                                                      str(self.required_time))
+    @staticmethod
+    def translate(codes):
+        lines = codes.split('\n')
+        res = []
+        for line in lines:
+            *code, page_num = line.split(' ')
+            res.append((instructions[code[0]](*code[1:]), page_num))
+        return res
 
     @staticmethod
     def random():
@@ -90,12 +176,31 @@ class PCB:
             pid = random.randint(1, 10000)
         return pid
 
+    def start(self, code):
+        if hasattr(code, 'exectime'):
+            self.timer.start(int(code.exectime) * 1000)
+            self.remain_time = int(code.exectime)
+        self.code_exec_status = 'running'
 
-class Frame:
-    pass
+    def exec_next_code(self):
+        code, page_num = self.codes[self.pc]
+        self.pc += 1
+        ready_pool.slotChangePC(self)
+        memory.access(self, page_num)
+        self.start(code)
+        code.exec(self)
 
-class PageTable:
-    pass
+    def stop(self):
+        self.remain_time -= CPU_PROCESS_TIME
+        if self.remain_time < 0:
+            self.remain_time = 0
+            self.exec_next_code()
+        self.timer.stop()
+        self.code_exec_status = 'stopped'
+
+    def resume(self):
+        self.timer.start(self.remain_time)
+        self.code_exec_status = 'running'
 
 
 class TableController:
@@ -119,8 +224,6 @@ class TableController:
             if j == 3:
                 # Special for priority column
                 item = QTableWidgetItem(str('{:.2f}'.format(float(content))))
-            elif j == 7:
-                item = QTableWidgetItem(str(hex(content)))
             else:
                 item = QTableWidgetItem(str(content))
             self.table.setItem(self.table.rowCount() - 1, j, item)  # Add item to table
@@ -210,18 +313,21 @@ class Pool(QtCore.QObject):
     def __init__(self):
         super().__init__()
         self._pool = []
+        self._idx = 0  # iterable
         self.lock = threading.Lock()
         self.connectSignal()
 
-    def __str__(self):
-        print("<{1} Pool ({0})>".format(len(self._pool), type(self).__name__))
-        for job in self._pool:
-            print(job)
-        print('')
-        return ""
+    def __iter__(self):
+        return self
 
-    def __repr__(self):
-        return "<PCB Pool ({0})>:{1}".format(len(self._pool), [job for job in self._pool])
+    def __next__(self):
+        try:
+            job = self._pool[self._idx]
+        except IndexError:
+            self._idx = 0
+            raise StopIteration()
+        self._idx += 1
+        return job
 
     def connectSignal(self):
         self.refreshTableSignal.connect(UI_main_window.slotTableRefresh)
@@ -287,6 +393,9 @@ class Pool(QtCore.QObject):
                     self._pool.remove(each)
                     return each
 
+    def __contains__(self, job):
+        return job in self._pool
+
 
 class JobPool(Pool):
     def __init__(self):
@@ -296,7 +405,6 @@ class JobPool(Pool):
                    'name',
                    'status',
                    'priority',
-                   'required_time',
                    'required_memory']
         self.table_controller = JobPoolTableController(table=table, content_each_line=content)
 
@@ -332,10 +440,9 @@ class SuspendPool(Pool):
                    'name',
                    'status',
                    'priority',
-                   'required_time',
                    'required_memory',
                    'address',
-                   'allocated_memory_start']
+                   'pc']
         self.table_controller = SuspendTableController(table=table, content_each_line=content)
 
 
@@ -347,10 +454,9 @@ class ReadyPool(Pool):
                    'name',
                    'status',
                    'priority',
-                   'required_time',
                    'required_memory',
                    'address',
-                   'allocated_memory_start']
+                   'pc']
         self.table_controller = ReadyTableController(table=table, content_each_line=content)
         self.scheduling_mode = scheduling_mode
         self.max = max
@@ -370,31 +476,10 @@ class ReadyPool(Pool):
             self._pool = sorted(self._pool, key=lambda item: item.priority)
         return self._pool[0]
 
-    def minus_time(self, job):
-        """
-        Minus a job's required_time and sync to table widget
-
-        :param job: A job to minus its time
-        :return: none
-        """
+    def after_time_slice(self, job):
         job.status = 'ready'
-        if job.required_time >= SUB_TIME:
-            job.required_time -= SUB_TIME
-        else:
-            job.required_time = 0
-
         # Update table widget
-        self.editTableSignal.emit(self.table_controller, job.pid, 4, str(job.required_time))
         self.editTableSignal.emit(self.table_controller, job.pid, 2, "ready")
-
-        # Need to be terminated
-        if job.required_time == 0:
-            logger.info('{0} terminated'.format(job.name))
-            self.remove(job.pid)  # remove job from waiting list
-            memory.free(job.required_memory, job.allocated_memory_start)  # free memory
-            terminated_pool.add(job)  # add to terminated pool
-            if len(self._pool) == 0:
-                self.running_label_change_signal.emit("")
 
     def change_priority(self, job):
         """
@@ -446,24 +531,19 @@ class ReadyPool(Pool):
         """
         return self.max - self.suspended_count
 
+    def slotChangePC(self, process):
+        self.editTableSignal.emit(self.table_controller, process.pid, 6, str(process.pc))
+
 
 class Memory(QtCore.QObject):
     memory_edit_signal = QtCore.pyqtSignal("QString", int)
-
-    class mem:
-        __slots__ = ('start', 'length')
-
-        def __init__(self, start, length):
-            self.start = start
-            self.length = length
 
     def __init__(self, table):
         super().__init__()
         self.table = table
         self.lock = threading.Lock()
-        self.free_mem = [self.mem(0, TOTAL_MEM)]
+        self.free_frames = list(range(TOTAL_MEM))
         self.memory_edit_signal.connect(UI_main_window.slotMemoryTableEdit)
-        self._used = 0
 
         # Init table widget
         for i in range(0, TOTAL_MEM):
@@ -472,63 +552,71 @@ class Memory(QtCore.QObject):
             item.setBackground(COLOR_MEMORY)
             self.table.setItem(self.table.rowCount() - 1, 0, item)
 
-    def filling(self, free_mem, mem_need):
-        for each_location in range(free_mem.start, free_mem.start + mem_need):
-            self._edit_table_widget("allocate", each_location)
-
-    def unfilling(self, mem_start, mem_length):
-        for each_location in range(mem_start, mem_start + mem_length):
-            self._edit_table_widget("free", each_location)
+    def already_in_memory(self, process, page_num):
+        return page_num in process.page_table and process.page_table[page_num].valid_bit
 
     @mutex_lock
-    def allocate(self, mem_need):
-        """
-        Allocate memory for a process: use First Fit algorithm
+    def access(self, process, page_num):
+        process.references += 1
+        if self.already_in_memory(process, page_num):
+            # update the reference time
+            process.page_table[page_num].recent_access_time = time.time()
+            frame = process.page_table[page_num].frame
+            logger.info(
+                "{} requests page {}. This page is already in memory frame {}".format(process.name, page_num, frame))
+        else:
+            # PAGE FAULT!!!!
+            process.page_faults += 1
+            free_frame = self.get_frame()
+            self._edit_table_widget("allocate", free_frame)
+            process.page_table[page_num] = PTE(free_frame, time.time(), True)
+            logger.info(
+                "{} requests page {}. Page Fault occurred. Frame {} granted".format(process.name, page_num, free_frame))
 
-        :return: Starting address or None
-        """
-        for each_free_mem in self.free_mem:
-            if each_free_mem.length >= mem_need:
-                # change color
-                self.filling(each_free_mem, mem_need)
-                each_free_mem.length -= mem_need
-                each_free_mem.start += mem_need
-                if each_free_mem.length == 0:
-                    self.free_mem.remove(each_free_mem)
-                self._used += mem_need
-                return each_free_mem.start - mem_need
+    def get_frame(self):
+        if len(self.free_frames) != 0:
+            return self.free_frames.pop(0)
+        else:
+            # we have to boot lru add frame to free list, and return it
+            self.replace_by_lru()
+            return self.free_frames.pop(0)
+
+    def replace_by_lru(self):
+        frames_in_memory = []
+        for process in ready_pool:
+            for pte in process.page_table.values():
+                if pte.valid_bit:
+                    frames_in_memory.append(pte)
+        # find the oldest / lru of the frames in memory
+        lru = frames_in_memory[0]
+        for frame in frames_in_memory:
+            if frame.recent_access_time < lru.recent_access_time:
+                lru = frame
+        # remove lru frame from physical memory
+        self._edit_table_widget("free", lru.frame)
+        # add free frame to free list
+        self.free_frames.append(lru.frame)
+        # set the valid bit of the removed page to False
+        lru.valid_bit = False
+        logger.info('lru occurred: frame {} out'.format(lru.frame))
 
     @mutex_lock
-    def free(self, mem_length, mem_start):
-        """
-        Free memory for a process
-
-        :return: None
-        """
-        self.unfilling(mem_start, mem_length)
-        self._used -= mem_length
-        self.free_mem.append(self.mem(mem_start, mem_length))
-        # merge intervals
-        self.free_mem.sort(key=lambda item: item.start)
-        i = 0
-        while True:
-            cur = self.free_mem[i]
-            if i + 1 < len(self.free_mem):
-                next = self.free_mem[i + 1]
-            else:
-                break
-            if cur.start + cur.length == next.start:
-                cur.length += next.length
-                self.free_mem.remove(next)
-            else:
-                i += 1
+    def free(self, process):
+        for pte in process.page_table.values():
+            self.free_frames.append(pte.frame)
+            self._edit_table_widget('free', pte.frame)
 
     @property
     def used(self):
-        return self._used
+        return TOTAL_MEM - len(self.free_frames)
 
     def _edit_table_widget(self, operation, location):
         self.memory_edit_signal.emit(operation, location)
+
+    def allocate_for_os(self):
+        for i in range(MEM_OS_TAKE):
+            self.free_frames.pop(0)
+            self._edit_table_widget('allocate', i)
 
 
 class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
@@ -555,28 +643,22 @@ class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
         if hasattr(self, 'st') and hasattr(self, 'lt'):
             self.st.terminate()
             self.lt.terminate()
-            self.st_scheduling_thread.join()
-            self.lt_scheduling_thread.join()
+            self.st.wait()
+            self.lt.wait()
         super().closeEvent(*args, **kwargs)
 
     def slotStartButton(self):
         ready_pool.max = self.DaoshuBox.value()
         self.StartButton.setDisabled(True)
         self.StartButton.setText("正在运行")
-
+        memory.allocate_for_os()
         # Create thread
-        self.st = Shortterm()
-        self.lt = Longterm()
-        self.st_scheduling_thread = threading.Thread(target=self.st.run,
-                                                     args=(MODE, ready_pool))
-        self.lt_scheduling_thread = threading.Thread(target=self.lt.run,
-                                                     args=(MODE, ready_pool, job_pool))
-
-        memory.allocate(MEM_OS_TAKE)
+        self.st = Shortterm(ready_pool)
+        self.lt = Longterm(ready_pool, job_pool)
 
         # Start thread
-        self.st_scheduling_thread.start()
-        self.lt_scheduling_thread.start()
+        self.st.start()
+        self.lt.start()
 
     def slotGenerateJobButton(self):
         for i in range(self.RandomCountBox.value()):
@@ -584,10 +666,12 @@ class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
             job_pool.add(random_process)
 
     def slotAddJobButton(self):
+
         job_pool.add(PCB(PCB.generate_pid(),
                          self.AddJobNameEdit.text(),
                          int(self.AddJobPriorityEdit.text()),
-                         int(self.AddJobTimeEdit.text())
+                         int(self.AddJobMemoryEdit.text()),
+                         self.JobText.toPlainText()
                          ))
 
     def slotMaxWaitingChanged(self):
@@ -618,49 +702,55 @@ class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
             self.NowRunningLabel.setText(" ")
 
 
-class SchedulingThread(metaclass=ABCMeta):
-    def __init__(self):
-        self._running = True
-
-    def terminate(self):
-        self._running = False
-
-    @abstractmethod
-    def run(self, *args):
-        pass
-
-
-class Shortterm(SchedulingThread):
+class Shortterm(QThread):
+    def __init__(self, ready_pl):
+        super().__init__()
+        self.ready_pl = ready_pl
 
     def refreshStatus(self):
         UI_main_window.label_job.setText(str(job_pool.num))
-        UI_main_window.label_ready.setText(str(ready_pool.num))
+        UI_main_window.label_ready.setText(str(ready_pool.num - 1))  # except running
         UI_main_window.label_suspended.setText(str(suspend_pool.num))
         UI_main_window.label_terminated.setText(str(terminated_pool.num))
-        UI_main_window.label_memory.setText('{:.2f}% ({}/{})'.format(memory.used / TOTAL_MEM, memory.used, TOTAL_MEM))
+        UI_main_window.label_memory.setText(
+            '{:.2f}% ({}/{})'.format(memory.used / TOTAL_MEM * 100, memory.used, TOTAL_MEM))
 
-    def run(self, mode, ready_pl):
-        """
-        Thread for CPU scheduling
+    def manage_process(self, process, ready_pl):
+        if process.code_exec_status is None:
+            process.exec_next_code()
+        elif process.code_exec_status == 'stopped':
+            process.resume()
+        time.sleep(CPU_PROCESS_TIME)
+        process.stop()
+        ready_pl.after_time_slice(process)
 
-        :param mode: Scheduling mode
-        :param ready_pl: ready pool
-        """
-        while self._running:
-            if ready_pl.num > 0:
-                processing_job = ready_pl.get()
+    def create_timer(self, process):
+        if not hasattr(process, 'timer'):
+            process.timer = QTimer()
+            process.timer.setSingleShot(True)
+            process.timer.timeout.connect(process.exec_next_code)
+            process.remain_time = 0
+
+    def run(self):
+        while True:
+            if self.ready_pl.num > 0:
+                processing_job = self.ready_pl.get()
+                self.create_timer(processing_job)
                 processing_job.status = 'running'
-                if mode == 'priority':
-                    logger.info('Running {0}...'.format(processing_job.name))
-                    ready_pl.change_priority(processing_job)
-                    self.refreshStatus()
-                    time.sleep(CPU_PROCESS_TIME)  # Sleep just for show
-                    ready_pl.minus_time(processing_job)
+                logger.info('Running {0}...'.format(processing_job.name))
+                self.ready_pl.change_priority(processing_job)
+                self.refreshStatus()
+                self.manage_process(processing_job, self.ready_pl)
             time.sleep(0.001)
 
 
-class Longterm(SchedulingThread):
-    def run(self, mode, ready_pl, job_pl):
+class Longterm(QThread):
+    def __init__(self, ready_pl, job_pl):
+        super().__init__()
+        self.ready_pl = ready_pl
+        self.job_pl = job_pl
+
+    def run(self):
         """
         # Thread for long term scheduling
 
@@ -668,16 +758,11 @@ class Longterm(SchedulingThread):
         :param ready_pl: ready pool object
         :param job_pl: job pool object
         """
-        while self._running:
-            if ready_pl.num < ready_pl.count:
-                job = job_pl.pop()
+        while True:
+            if self.ready_pl.num < self.ready_pl.count:
+                job = self.job_pl.pop()
                 if job:
-                    mem = memory.allocate(job.required_memory)
-                    if mem is None:
-                        job_pl.add(job)
-                    else:
-                        ready_pl.add(job)
-                        job.allocated_memory_start = mem
+                    self.ready_pl.add(job)
             time.sleep(0.001)
 
 
