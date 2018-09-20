@@ -48,7 +48,7 @@ class C(Code):
         self.exectime = exectime
 
     def exec(self, process):
-        pass
+        logger.info('exec code C, remain_time: {}'.format(process.remain_time))
 
 
 class K(Code):
@@ -162,19 +162,16 @@ class PCB:
             pid = random.randint(1, 10000)
         return pid
 
-    def start(self, code):
-        if hasattr(code, 'exectime'):
-            self.timer.start(int(code.exectime) * 1000)
-            self.remain_time = int(code.exectime)
-        self.code_exec_status = 'running'
-
     def exec_next_code(self):
         code, page_num = self.codes[self.pc]
         self.pc += 1
         ready_pool.slotChangePC(self)
         memory.access(self, page_num)
         ready_pool.slotChangePageRate(self)
-        self.start(code)
+        if hasattr(code, 'exectime'):
+            self.timer.start(int(code.exectime) * 1000)
+            self.remain_time = int(code.exectime)
+        self.code_exec_status = 'running'
         code.exec(self)
 
     def stop(self):
