@@ -9,7 +9,7 @@ from abc import ABCMeta, abstractmethod
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QTableWidgetItem
 from PyQt5 import QtCore, QtGui
-from PyQt5.QtCore import QTimer, QThread
+from PyQt5.QtCore import QThread, QTimer
 
 import mainwindow
 from settings import *
@@ -37,82 +37,125 @@ def mutex_lock(func):
     return wrapper
 
 
+class OutOfMemoryError(Exception):
+    def __init__(self):
+        super().__init__()
+        logger.error('out of memory!')
+
+
 class Code(metaclass=ABCMeta):
+    def __init__(self, *args, process):
+        self.process = process
+
     @abstractmethod
-    def exec(self, process):
+    def exec(self, *args):
         pass
+
+    def sub_time(self):
+        self.remain_time -= CPU_PROCESS_TIME
+        if self.remain_time < 0:
+            self.remain_time = 0
+            self.process.pc += 1
 
 
 class C(Code):
-    def __init__(self, exectime):
+    def __init__(self, exectime, process):
+        super().__init__(process=process)
+        self.exectime = int(exectime)
+        self.remain_time = self.exectime
+
+    def exec(self, *args):
+        logger.info('exec code C, remain_time: {}'.format(self.remain_time))
+        self.sub_time()
+
+
+class TimerThread(QThread):
+    def __init__(self, process, exectime):
+        super().__init__()
+        self.process = process
         self.exectime = exectime
 
-    def exec(self, process):
-        logger.info('exec code C, remain_time: {}'.format(process.remain_time))
+    def fromSuspend2Ready(self):
+        logger.info("Resume {}".format(self.process.name))
+        self.process.io_status = 'complete'
+        suspend_pool.remove(self.process)
+        self.process.pc += 1
+
+    def run(self):
+        self.timer = QTimer()
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self.fromSuspend2Ready)
+        self.timer.start(self.exectime * 1000)
+        self.exec_()
 
 
-class K(Code):
-    def __init__(self, exectime):
-        self.exectime = exectime
+class IO(Code):
+    def __init__(self, exectime, process):
+        super().__init__(process=process)
+        self.exectime = int(exectime)
+        self.timerThread = TimerThread(self.process, self.exectime)
 
-    def exec(self, process):
-        pass
+    def change_io_type(self):
+        raise NotImplementedError
+
+    def exec(self):
+        logger.info('exec code K, exectime: {}'.format(self.exectime))
+        self.change_io_type()
+        self.process.io_status = 'running'
+        self.fromReady2Suspend()
+        self.timerThread.start()
+
+    def fromReady2Suspend(self):
+        logger.info("Suspend {}".format(self.process.name))
+        ready_pool.suspend(self.process)
+        suspend_pool.add(self.process)
 
 
-class P(Code):
-    def __init__(self, exectime):
-        self.exectime = exectime
-
-    def exec(self, process):
-        pass
+class K(IO):
+    def change_io_type(self):
+        self.process.io_type = 'keyboard'
 
 
-class R(Code):
-    def __init__(self, filename, exectime):
+class P(IO):
+    def change_io_type(self):
+        self.process.io_type = 'printer'
+
+
+class R(IO):
+    def __init__(self, filename, exectime, process):
+        super().__init__(exectime, process)
         self.filename = filename
-        self.exectime = exectime
 
-    def exec(self, process):
-        pass
+    def change_io_type(self):
+        self.process.io_type = 'read file'
 
 
-class W(Code):
-    def __init__(self, filename, exectime, size):
+class W(IO):
+    def __init__(self, filename, exectime, size, process):
+        super().__init__(exectime, process)
         self.filename = filename
-        self.exectime = exectime
         self.size = size
 
-    def exec(self, process):
-        pass
-
-
-class M(Code):
-    def __init__(self, memsize):
-        self.memsize = memsize
-
-    def exec(self, process):
-        pass
-
-
-class Y(Code):
-    def __init__(self, priority):
-        self.priority = priority
-
-    def exec(self, process):
-        pass
+    def change_io_type(self):
+        self.process.io_type = 'write file'
 
 
 class Q(Code):
-    def exec(self, process):
-        logger.info('{0} terminated'.format(process.name))
-        ready_pool.remove(process.pid)  # remove job from waiting list
-        memory.free(process)  # free memory
-        terminated_pool.add(process)  # add to terminated pool
+    def exec(self):
+        logger.info('{0} terminated'.format(self.process.name))
+        ready_pool.remove(self.process.pid)  # remove job from waiting list
+        memory.free(self.process)  # free memory
+        terminated_pool.add(self.process)  # add to terminated pool
         if len(ready_pool._pool) == 0:
             ready_pool.running_label_change_signal.emit("")
 
 
-instructions = {'C': C, 'K': K, 'P': P, 'R': R, 'W': W, 'M': M, 'Y': Y, 'Q': Q}
+instructions = {'C': C,
+                'K': K,
+                'P': P,
+                'R': R,
+                'W': W,
+                'Q': Q}
 
 
 class PTE:
@@ -125,29 +168,35 @@ class PTE:
 
 
 class PCB:
-    def __init__(self, pid, name=None, priority=4, required_memory=10, codes=''):
+    def __init__(self, pid, name=None, priority=4, codes=''):
         self.pid = pid
         self.name = name if name else "P{}".format(pid)
         self.priority = priority
         self.status = 'new'
         self.address = hex(id(self))
         self.age = 0
-        self.required_memory = required_memory
-        self.codes = self.translate(codes)
         self.pc = 0
+        self.codes = self.translate(codes)
         self.page_table = {}
         self.references = 0
         self.page_faults = 0
         self.code_exec_status = None  # new, running, stopped
+        self.io_type = None
+        self.io_status = None
 
-    @staticmethod
-    def translate(codes):
+    def translate(self, codes):
         lines = codes.split('\n')
         res = []
+        page_nums = []
         for line in lines:
             *code, page_num = line.split(' ')
-            res.append((instructions[code[0]](*code[1:]), page_num))
+            res.append((instructions[code[0]](*code[1:], process=self), page_num))
+            page_nums.append(page_num)
+        self.calcMemory(page_nums)
         return res
+
+    def calcMemory(self, page_nums):
+        self.required_memory =  len(set(page_nums))
 
     @staticmethod
     def generate_pid():
@@ -164,27 +213,18 @@ class PCB:
 
     def exec_next_code(self):
         code, page_num = self.codes[self.pc]
-        self.pc += 1
         ready_pool.slotChangePC(self)
-        memory.access(self, page_num)
+        try:
+            memory.access(self, page_num)
+        except OutOfMemoryError:
+            logger.info('{0} terminated'.format(self.name))
+            ready_pool.remove(self.pid)  # remove job from waiting list
+            terminated_pool.add(self)  # add to terminated pool
+            if len(ready_pool._pool) == 0:
+                ready_pool.running_label_change_signal.emit("")
+            raise
         ready_pool.slotChangePageRate(self)
-        if hasattr(code, 'exectime'):
-            self.timer.start(int(code.exectime) * 1000)
-            self.remain_time = int(code.exectime)
-        self.code_exec_status = 'running'
-        code.exec(self)
-
-    def stop(self):
-        self.remain_time -= CPU_PROCESS_TIME
-        if self.remain_time < 0:
-            self.remain_time = 0
-            self.exec_next_code()
-        self.timer.stop()
-        self.code_exec_status = 'stopped'
-
-    def resume(self):
-        self.timer.start(self.remain_time)
-        self.code_exec_status = 'running'
+        code.exec()
 
 
 class TableController:
@@ -256,7 +296,7 @@ class TableController:
                 new_item.setBackground(QtGui.QColor(252, 222, 156))
                 self.table.setItem(i, column, new_item)
                 if new_text == 'running':
-                    if self.last_running_line != -1:  # clear last running line
+                    if self.last_running_line != -1 and self.last_running_line < self.table.rowCount():  # clear last running line
                         for j in range(self.table.columnCount()):
                             self.table.item(self.last_running_line, j).setBackground(QtGui.QColor(0, 0, 0, 0))
                     # pain new running line
@@ -378,8 +418,8 @@ class Pool(QtCore.QObject):
         for each in self._pool:
             if isinstance(identifier, PCB):
                 if each.pid == identifier.pid:
-                    self.refreshTableSignal.emit(self.table_controller, identifier, "remove")
                     self._pool.remove(each)
+                    self.refreshTableSignal.emit(self.table_controller, identifier, "remove")
                     return each
             elif isinstance(identifier, int):
                 if each.pid == int(identifier):
@@ -439,8 +479,19 @@ class SuspendPool(Pool):
                    'pc',
                    'references',
                    'page_faults',
-                   'page_faults']
+                   'page_faults',
+                   'io_type',
+                   'io_status']
         self.table_controller = SuspendTableController(table=table, content_each_line=content)
+
+    def remove(self, identifier):
+        for each in self._pool:
+            if isinstance(identifier, PCB):
+                if each.pid == identifier.pid:
+                    self._pool.remove(each)
+                    self.refreshTableSignal.emit(self.table_controller, identifier, "io_complete")
+                    io_pool.add(each)
+                    return each
 
 
 class ReadyPool(Pool):
@@ -478,7 +529,6 @@ class ReadyPool(Pool):
 
     def after_time_slice(self, job):
         job.status = 'ready'
-        # Update table widget
         self.editTableSignal.emit(self.table_controller, job.pid, 2, "ready")
 
     def change_priority(self, job):
@@ -529,7 +579,7 @@ class ReadyPool(Pool):
         """
         :return: number of jobs that could be scheduled
         """
-        return self.max - self.suspended_count
+        return self.max
 
     def slotChangePC(self, process):
         self.editTableSignal.emit(self.table_controller, process.pid, 6, str(process.pc))
@@ -540,6 +590,20 @@ class ReadyPool(Pool):
         self.editTableSignal.emit(self.table_controller, process.pid, 9,
                                   '{:.2f}%'.format(
                                       0 if process.references == 0 else process.page_faults / process.references * 100))
+
+
+class IOCompletedPool:
+    def __init__(self):
+        self._pool = []
+
+    def add(self, process):
+        self._pool.append(process)
+
+    def pop(self):
+        return self._pool.pop(0)
+
+    def __len__(self):
+        return len(self._pool)
 
 
 class Memory(QtCore.QObject):
@@ -601,7 +665,11 @@ class Memory(QtCore.QObject):
                 if pte.valid_bit:
                     frames_in_memory.append(item(process, page_num, pte))
         # find the oldest / lru of the frames in memory
-        lru = frames_in_memory[0]
+        try:
+            lru = frames_in_memory[0]
+        except IndexError:
+            self.lock.release()
+            raise OutOfMemoryError()
         for item in frames_in_memory:
             if item.pte.recent_access_time < lru.pte.recent_access_time:
                 lru = item
@@ -679,7 +747,6 @@ class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
         job_pool.add(PCB(PCB.generate_pid(),
                          self.AddJobNameEdit.text(),
                          int(self.AddJobPriorityEdit.text()),
-                         int(self.AddJobMemoryEdit.text()),
                          self.JobText.toPlainText()
                          ))
 
@@ -692,6 +759,8 @@ class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
             controller.append(process)
         elif operation == "remove":
             controller.remove(process)
+        elif operation == "io_complete":
+            controller.edit(process.pid, 11, 'complete')
 
     @QtCore.pyqtSlot(TableController, int, int, "QString")
     def slotTableEdit(self, controller, pid, column, new_text):
@@ -729,31 +798,22 @@ class Shortterm(QThread):
             '{:.2f}%'.format(0 if memory.references == 0 else memory.page_faults / memory.references * 100))
 
     def manage_process(self, process, ready_pl):
-        if process.code_exec_status is None:
-            process.exec_next_code()
-        elif process.code_exec_status == 'stopped':
-            process.resume()
+        process.exec_next_code()
         time.sleep(CPU_PROCESS_TIME)
-        process.stop()
         ready_pl.after_time_slice(process)
-
-    def create_timer(self, process):
-        if not hasattr(process, 'timer'):
-            process.timer = QTimer()
-            process.timer.setSingleShot(True)
-            # process.timer.timeout.connect(process.exec_next_code) # useless
-            process.remain_time = 0
 
     def run(self):
         while True:
             self.refreshStatus()
             if self.ready_pl.num > 0:
                 processing_job = self.ready_pl.get()
-                self.create_timer(processing_job)
                 processing_job.status = 'running'
                 logger.info('Running {0}...'.format(processing_job.name))
                 self.ready_pl.change_priority(processing_job)
-                self.manage_process(processing_job, self.ready_pl)
+                try:
+                    self.manage_process(processing_job, self.ready_pl)
+                except OutOfMemoryError:
+                    pass
             time.sleep(0.001)
 
 
@@ -773,7 +833,12 @@ class Longterm(QThread):
         """
         while True:
             if self.ready_pl.num < self.ready_pl.count:
-                job = self.job_pl.pop()
+                if len(io_pool) > 0:
+                    job = io_pool.pop()
+                    job.priority = 0
+                    suspend_pool.refreshTableSignal.emit(suspend_pool.table_controller, job, "remove")
+                else:
+                    job = self.job_pl.pop()
                 if job:
                     self.ready_pl.add(job)
             time.sleep(0.001)
@@ -808,6 +873,7 @@ if __name__ == '__main__':
     ready_pool = ReadyPool(scheduling_mode=MODE, max=5)
     terminated_pool = TerminatedPool()
     suspend_pool = SuspendPool()
+    io_pool = IOCompletedPool()
     memory = Memory(UI_main_window.rightBarWidget)
 
     # Show main window

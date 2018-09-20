@@ -315,6 +315,16 @@
               <string>缺页率</string>
              </property>
             </column>
+            <column>
+             <property name="text">
+              <string>IO类型</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>IO状态</string>
+             </property>
+            </column>
            </widget>
           </item>
          </layout>
@@ -353,7 +363,7 @@
         <enum>QTabWidget::Triangular</enum>
        </property>
        <property name="currentIndex">
-        <number>1</number>
+        <number>0</number>
        </property>
        <property name="elideMode">
         <enum>Qt::ElideNone</enum>
@@ -374,7 +384,7 @@
         <attribute name="title">
          <string>添加任务</string>
         </attribute>
-        <layout class="QVBoxLayout" name="verticalLayout_6" stretch="1,1,1,4,2">
+        <layout class="QVBoxLayout" name="verticalLayout_6" stretch="1,1,4,2">
          <item>
           <layout class="QHBoxLayout" name="horizontalLayout_2">
            <item>
@@ -400,20 +410,6 @@
            </item>
            <item>
             <widget class="QLineEdit" name="AddJobPriorityEdit"/>
-           </item>
-          </layout>
-         </item>
-         <item>
-          <layout class="QHBoxLayout" name="horizontalLayout_4">
-           <item>
-            <widget class="QLabel" name="AddJobTimeLabel">
-             <property name="text">
-              <string>占用内存</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLineEdit" name="AddJobMemoryEdit"/>
            </item>
           </layout>
          </item>
