@@ -46,6 +46,12 @@ class OutOfMemoryError(Exception):
         logger.error('out of memory!')
 
 
+class CodeFormatError(Exception):
+    def __init__(self):
+        super().__init__()
+        logger.error('code format error!')
+
+
 class Code(metaclass=ABCMeta):
     def __init__(self, *args, process):
         self.process = process
@@ -189,12 +195,19 @@ class PCB:
 
     def translate(self, codes):
         lines = codes.split('\n')
+        if lines[-1][0] != 'Q':
+            raise CodeFormatError()
         res = []
         page_nums = []
-        for line in lines:
-            *code, page_num = line.split(' ')
-            res.append((instructions[code[0]](*code[1:], process=self), page_num))
-            page_nums.append(page_num)
+
+        try:
+            for line in lines:
+                *code, page_num = line.split(' ')
+                res.append((instructions[code[0]](*code[1:], process=self), page_num))
+                page_nums.append(page_num)
+        except Exception:
+            raise CodeFormatError()
+
         self.calcMemory(page_nums)
         return res
 
@@ -802,11 +815,15 @@ class FileEditDialog(QDialog, file_edit.Ui_Dialog):
             msg = '代码不能为空！'
             QMessageBox().critical(self, '代码出错', msg, QMessageBox.Yes, QMessageBox.Yes)
             return
-        job_pool.add(PCB(PCB.generate_pid(),
-                         self.AddJobPriorityEdit_2.text(),
-                         int(self.AddJobNameEdit_2.text()),
-                         self.JobText.toPlainText()
-                         ))
+        try:
+            job_pool.add(PCB(PCB.generate_pid(),
+                             self.AddJobPriorityEdit_2.text(),
+                             int(self.AddJobNameEdit_2.text()),
+                             self.JobText.toPlainText()
+                             ))
+        except CodeFormatError:
+            msg = '代码格式出错！'
+            QMessageBox().critical(self, '代码出错', msg, QMessageBox.Yes, QMessageBox.Yes)
         self.accept()
 
     def save(self):
