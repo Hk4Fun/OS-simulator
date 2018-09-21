@@ -380,60 +380,18 @@
        <property name="tabBarAutoHide">
         <bool>false</bool>
        </property>
-       <widget class="QWidget" name="AddJobTabWidgetPage1">
+       <widget class="QWidget" name="tab_2">
         <attribute name="title">
-         <string>添加任务</string>
+         <string>文件管理</string>
         </attribute>
-        <layout class="QVBoxLayout" name="verticalLayout_6" stretch="1,1,4,2">
+        <layout class="QVBoxLayout" name="verticalLayout_6">
          <item>
-          <layout class="QHBoxLayout" name="horizontalLayout_2">
-           <item>
-            <widget class="QLabel" name="AddJobNameLabel">
-             <property name="text">
-              <string>作业名称</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLineEdit" name="AddJobNameEdit"/>
-           </item>
-          </layout>
+          <widget class="QTableWidget" name="fileList"/>
          </item>
          <item>
-          <layout class="QHBoxLayout" name="horizontalLayout_3">
-           <item>
-            <widget class="QLabel" name="AddJobPriorityLabel">
-             <property name="text">
-              <string>优先权值</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLineEdit" name="AddJobPriorityEdit"/>
-           </item>
-          </layout>
-         </item>
-         <item>
-          <widget class="QTextEdit" name="JobText">
-           <property name="placeholderText">
-            <string>Your Codes</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="AddJobButton">
-           <property name="font">
-            <font>
-             <pointsize>12</pointsize>
-             <weight>50</weight>
-             <italic>false</italic>
-             <bold>false</bold>
-             <underline>false</underline>
-             <strikeout>false</strikeout>
-            </font>
-           </property>
+          <widget class="QPushButton" name="NewFile">
            <property name="text">
-            <string>添加</string>
+            <string>新建</string>
            </property>
           </widget>
          </item>

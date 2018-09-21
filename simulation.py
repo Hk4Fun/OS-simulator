@@ -7,12 +7,15 @@ import logging
 from collections import namedtuple
 from abc import ABCMeta, abstractmethod
 
-from PyQt5.QtWidgets import QApplication, QMainWindow, QTableWidgetItem
+from PyQt5.QtWidgets import (QMessageBox, QApplication, QMainWindow, QTableWidgetItem,
+                             QAbstractItemView, QHeaderView, QDialog)
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QThread, QTimer
 
+import file_edit
 import mainwindow
 from settings import *
+from interpreter import Intr_table
 
 COLOR_MEMORY = QtGui.QColor(*COLOR_MEMORY)
 COLOR_USED_MEMORY = QtGui.QColor(*COLOR_USED_MEMORY)
@@ -67,6 +70,16 @@ class C(Code):
     def exec(self, *args):
         logger.info('exec code C, remain_time: {}'.format(self.remain_time))
         self.sub_time()
+
+
+class Q(Code):
+    def exec(self):
+        logger.info('{0} terminated'.format(self.process.name))
+        ready_pool.remove(self.process.pid)  # remove job from waiting list
+        memory.free(self.process)  # free memory
+        terminated_pool.add(self.process)  # add to terminated pool
+        if len(ready_pool._pool) == 0:
+            ready_pool.running_label_change_signal.emit("")
 
 
 class TimerThread(QThread):
@@ -140,16 +153,6 @@ class W(IO):
         self.process.io_type = 'write file'
 
 
-class Q(Code):
-    def exec(self):
-        logger.info('{0} terminated'.format(self.process.name))
-        ready_pool.remove(self.process.pid)  # remove job from waiting list
-        memory.free(self.process)  # free memory
-        terminated_pool.add(self.process)  # add to terminated pool
-        if len(ready_pool._pool) == 0:
-            ready_pool.running_label_change_signal.emit("")
-
-
 instructions = {'C': C,
                 'K': K,
                 'P': P,
@@ -196,7 +199,7 @@ class PCB:
         return res
 
     def calcMemory(self, page_nums):
-        self.required_memory =  len(set(page_nums))
+        self.required_memory = len(set(page_nums))
 
     @staticmethod
     def generate_pid():
@@ -702,6 +705,127 @@ class Memory(QtCore.QObject):
             self._edit_table_widget('allocate', i)
 
 
+class Node:
+    def __init__(self, name=None, prio=None, code=None):
+        self.name = name
+        self.prio = prio
+        self.code = code
+        self._next = None
+
+
+class Chain:
+    def __init__(self):
+        self._head = None
+        self.length = 0
+
+    def isEmpty(self):
+        return self.length == 0
+
+    def append(self, name, prio, code):
+        node = Node(name, prio, code)
+        if self._head == None:
+            self._head = node
+        else:
+            be_node = self._head
+            while be_node._next:
+                be_node = be_node._next
+            be_node._next = node
+        self.length += 1
+
+    def insert(self, index, item):
+        if self.isEmpty():
+            return
+        if index < 0 or index >= self.length:
+            return
+        in_node = Node(item)
+        node = self._head
+        count = 1
+        while True:
+            node = node._next
+            count += 1
+            if count == index:
+                next_node = node._next
+                node._next = in_node
+                in_node._next = next_node
+                self.length += 1
+                return
+
+    def delete(self, name):
+        if self.isEmpty():
+            return
+        else:
+            node = self._head
+            if (node.name == name):
+                self._head = self._head._next
+                self.length -= 1
+                return
+            while node._next != None:
+                if name == node._next.name:
+                    node._next = node._next._next
+                    self.length -= 1
+                    return
+                node = node._next
+
+    def fetch(self, index):
+        if self.isEmpty():
+            return
+        if index < 0 or index >= self.length:
+            return
+        else:
+            node = self._head
+            count = 0
+            while node is not None:
+                if index == count:
+                    return node
+                node = node._next
+                count += 1
+
+
+class FileEditDialog(QDialog, file_edit.Ui_Dialog):
+    def __init__(self, fileId=None, parent=None):
+        super().__init__()
+        self.setupUi(self)
+        self.saveFileButton.clicked.connect(self.save)
+        self.deleteFileButton.clicked.connect(self.delete)
+        self.addJobButton.clicked.connect(self.addJob)
+        self.isOld = 0
+
+        if fileId != None:
+            self.AddJobPriorityEdit_2.setText(file_chain.fetch(fileId).name)
+            self.AddJobNameEdit_2.setText(str(file_chain.fetch(fileId).prio))
+            self.JobText.setText(file_chain.fetch(fileId).code)
+            self.isOld = 1
+        self.name = self.AddJobPriorityEdit_2.text()
+
+    def addJob(self):
+        if self.JobText.toPlainText() == '':
+            msg = '代码不能为空！'
+            QMessageBox().critical(self, '代码出错', msg, QMessageBox.Yes, QMessageBox.Yes)
+            return
+        job_pool.add(PCB(PCB.generate_pid(),
+                         self.AddJobPriorityEdit_2.text(),
+                         int(self.AddJobNameEdit_2.text()),
+                         self.JobText.toPlainText()
+                         ))
+        self.accept()
+
+    def save(self):
+        if (self.isOld == 0):
+            self.name = self.AddJobPriorityEdit_2.text()
+        file_chain.delete(self.name)
+        file_chain.append(self.AddJobPriorityEdit_2.text(), int(self.AddJobNameEdit_2.text()),
+                          self.JobText.toPlainText())
+        msg = '保存成功！'
+        QMessageBox().information(self, '保存成功', msg, QMessageBox.Yes, QMessageBox.Yes)
+        self.accept()
+
+    def delete(self):
+        if (self.isOld == 0):
+            self.name = self.AddJobPriorityEdit_2.text()
+        file_chain.delete(self.name)
+        self.accept()
+
+
 class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
     def __init__(self, parent=None):
         super().__init__()
@@ -717,8 +841,45 @@ class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
 
         # Connect slots
         self.StartButton.clicked.connect(self.slotStartButton)
-        self.AddJobButton.clicked.connect(self.slotAddJobButton)
         self.DaoshuBox.valueChanged.connect(self.slotMaxWaitingChanged)
+        self.NewFile.clicked.connect(self.slotCreateNewFile)
+
+    def initFileUI(self):
+        #
+        file_chain.append('only C', 2, 'C 1 0\nC 1 1\nC 1 2\nC 1 3\nC 1 1\nQ 2')
+        file_chain.append('c and K', 2, 'C 1 0\nK 4 1\nC 1 2\nQ 2')
+        file_chain.append('C and k', 2, 'C 4 0\nK 1 1\nC 4 0\nQ 2')
+        file_chain.append('all', 2, 'C 2 0\nR a 2 1\nC 2 2\nW a 2 15 3\nC 2 4\nQ 5')
+
+        self.fileList.setRowCount(file_chain.length)
+        self.fileList.setColumnCount(1)
+        self.fileList.setHorizontalHeaderLabels(['文件名'])
+        self.fileList.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        header = self.fileList.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Stretch)
+
+        for i in range(0, file_chain.length):
+            item = QTableWidgetItem(str(file_chain.fetch(i).name))
+            self.fileList.setItem(i, 0, item)
+            self.fileList.setSelectionBehavior(QAbstractItemView.SelectRows)
+            self.fileList.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.fileList.cellDoubleClicked.connect(self.editFile)
+
+    def editFile(self, row, column):
+        # integer
+        self.ui_file = FileEditDialog(row)
+        self.ui_file.exec()
+        self.fileList.setRowCount(file_chain.length)
+        self.fileList.setColumnCount(1)
+        self.fileList.setHorizontalHeaderLabels(['文件名'])
+        self.fileList.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        header = self.fileList.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Stretch)
+        for i in range(0, file_chain.length):
+            item = QTableWidgetItem(str(file_chain.fetch(i).name))
+            self.fileList.setItem(i, 0, item)
+            self.fileList.setSelectionBehavior(QAbstractItemView.SelectRows)
+            self.fileList.setSelectionMode(QAbstractItemView.SingleSelection)
 
     def closeEvent(self, *args, **kwargs):
         # terminate two scheduling threads before close mainWindow
@@ -728,6 +889,21 @@ class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
             self.st.wait()
             self.lt.wait()
         super().closeEvent(*args, **kwargs)
+
+    def slotCreateNewFile(self):
+        self.ui_file = FileEditDialog()
+        if self.ui_file.exec():
+            self.fileList.setRowCount(file_chain.length)
+            self.fileList.setColumnCount(1)
+            self.fileList.setHorizontalHeaderLabels(['文件名'])
+            self.fileList.setEditTriggers(QAbstractItemView.NoEditTriggers)
+            header = self.fileList.horizontalHeader()
+            header.setSectionResizeMode(QHeaderView.Stretch)
+            for i in range(0, file_chain.length):
+                item = QTableWidgetItem(str(file_chain.fetch(i).name))
+                self.fileList.setItem(i, 0, item)
+                self.fileList.setSelectionBehavior(QAbstractItemView.SelectRows)
+                self.fileList.setSelectionMode(QAbstractItemView.SingleSelection)
 
     def slotStartButton(self):
         ready_pool.max = self.DaoshuBox.value()
@@ -743,7 +919,6 @@ class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
         self.lt.start()
 
     def slotAddJobButton(self):
-
         job_pool.add(PCB(PCB.generate_pid(),
                          self.AddJobNameEdit.text(),
                          int(self.AddJobPriorityEdit.text()),
@@ -824,13 +999,6 @@ class Longterm(QThread):
         self.job_pl = job_pl
 
     def run(self):
-        """
-        # Thread for long term scheduling
-
-        :param mode: mode for scheduling
-        :param ready_pl: ready pool object
-        :param job_pl: job pool object
-        """
         while True:
             if self.ready_pl.num < self.ready_pl.count:
                 if len(io_pool) > 0:
@@ -861,6 +1029,14 @@ def setLog():
     return logger
 
 
+def init_intr_table():
+    intr_table.add(0, memory.get_frame)  # 缺页中断
+    intr_table.add(1, TimerThread.fromSuspend2Ready)  # io完成中断
+    intr_table.add(2, IO.fromReady2Suspend)  # io开始中断
+    intr_table.add(3, OutOfMemoryError)  # 异常中断
+    intr_table.add(4, time.sleep)  # 时间片中断
+
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     UI_main_window = MainWindow()
@@ -875,6 +1051,10 @@ if __name__ == '__main__':
     suspend_pool = SuspendPool()
     io_pool = IOCompletedPool()
     memory = Memory(UI_main_window.rightBarWidget)
+    file_chain = Chain()
+    UI_main_window.initFileUI()
+    intr_table = Intr_table()
+    init_intr_table()
 
     # Show main window
     UI_main_window.show()
