@@ -80,6 +80,6 @@ class Ui_Dialog(object):
         self.AddJobPriorityLabel_2.setText(_translate("Dialog", "优先权值"))
         self.JobText.setPlaceholderText(_translate("Dialog", "Your Codes"))
         self.saveFileButton.setText(_translate("Dialog", "保存"))
-        self.addJobButton.setText(_translate("Dialog", "运行"))
+        self.addJobButton.setText(_translate("Dialog", "添加任务"))
         self.deleteFileButton.setText(_translate("Dialog", "删除"))
 

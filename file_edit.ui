@@ -85,7 +85,7 @@
         </font>
        </property>
        <property name="text">
-        <string>运行</string>
+        <string>添加任务</string>
        </property>
        <property name="checkable">
         <bool>true</bool>

@@ -654,16 +654,16 @@ class Memory(QtCore.QObject):
             process.page_table[page_num].recent_access_time = time.time()
             frame = process.page_table[page_num].frame
             logger.info(
-                "{} requests page {}. This page is already in memory frame {}".format(process.name, page_num, frame))
+                "{} requests page {}. This page is already in memory frame {}".format(process.pid, page_num, frame))
         else:
             # PAGE FAULT!!!!
             self.page_faults += 1
             process.page_faults += 1
-            free_frame = self.get_frame()
+            free_frame = intr_table.query(0)()  # self.get_frame()
             self._edit_table_widget("allocate", free_frame)
             process.page_table[page_num] = PTE(free_frame, time.time(), True)
             logger.info(
-                "{} requests page {}. Page Fault occurred. Frame {} granted".format(process.name, page_num, free_frame))
+                "{} requests page {}. Page Fault occurred. Frame {} granted".format(process.pid, page_num, free_frame))
 
     def get_frame(self):
         if len(self.free_frames) != 0:
@@ -862,7 +862,6 @@ class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
         self.NewFile.clicked.connect(self.slotCreateNewFile)
 
     def initFileUI(self):
-        #
         file_chain.append('only C', 2, 'C 1 0\nC 1 1\nC 1 2\nC 1 3\nC 1 1\nQ 2')
         file_chain.append('c and K', 2, 'C 1 0\nK 4 1\nC 1 2\nQ 2')
         file_chain.append('C and k', 2, 'C 4 0\nK 1 1\nC 4 0\nQ 2')
