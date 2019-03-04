@@ -133,7 +133,7 @@ class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
             self.NowRunningLabel.setText(" ")
 
 
-UI_main_window = MainWindow()
+ui_mainwindow = MainWindow()
 
 from file import FileEditDialog, file_chain
 from pcb import PCB

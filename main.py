@@ -21,8 +21,8 @@ if __name__ == '__main__':
         logger.addHandler(fh)
 
     app = QApplication(sys.argv)
-    from mainwindow import UI_main_window
+    from mainwindow import ui_mainwindow
 
-    UI_main_window.initFileUI()
-    UI_main_window.show()
+    ui_mainwindow.initFileUI()
+    ui_mainwindow.show()
     exit(app.exec_())

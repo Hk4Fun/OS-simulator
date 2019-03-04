@@ -6,7 +6,7 @@ from PyQt5 import QtCore
 
 from settings import *
 from utils import mutex_lock
-from mainwindow import UI_main_window
+from mainwindow import ui_mainwindow
 from pcb import PCB
 
 logger = logging.getLogger('log')
@@ -149,9 +149,9 @@ class Pool(QtCore.QObject):
         return job
 
     def connectSignal(self):
-        self.refreshTableSignal.connect(UI_main_window.slotTableRefresh)
-        self.editTableSignal.connect(UI_main_window.slotTableEdit)
-        self.running_label_change_signal.connect(UI_main_window.slotChangeRunningLabel)
+        self.refreshTableSignal.connect(ui_mainwindow.slotTableRefresh)
+        self.editTableSignal.connect(ui_mainwindow.slotTableEdit)
+        self.running_label_change_signal.connect(ui_mainwindow.slotChangeRunningLabel)
 
     @mutex_lock
     def add(self, job):
@@ -219,7 +219,7 @@ class Pool(QtCore.QObject):
 class JobPool(Pool):
     def __init__(self):
         super().__init__()
-        table = UI_main_window.JobPoolTable
+        table = ui_mainwindow.JobPoolTable
         content = ['pid',
                    'name',
                    'status',
@@ -246,7 +246,7 @@ class JobPool(Pool):
 class TerminatedPool(Pool):
     def __init__(self):
         super().__init__()
-        table = UI_main_window.TerminatedTable
+        table = ui_mainwindow.TerminatedTable
         content = ['pid', 'name']
         self.table_controller = TerminatedTableController(table=table, content_each_line=content)
 
@@ -254,7 +254,7 @@ class TerminatedPool(Pool):
 class SuspendPool(Pool):
     def __init__(self):
         super().__init__()
-        table = UI_main_window.SuspendTable
+        table = ui_mainwindow.SuspendTable
         content = ['pid',
                    'name',
                    'status',
@@ -282,7 +282,7 @@ class SuspendPool(Pool):
 class ReadyPool(Pool):
     def __init__(self, max=5):
         super().__init__()
-        table = UI_main_window.ReadyTable
+        table = ui_mainwindow.ReadyTable
         content = ['pid',
                    'name',
                    'status',

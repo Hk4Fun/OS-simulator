@@ -8,9 +8,8 @@ from PyQt5.QtWidgets import QTableWidgetItem
 
 from settings import *
 from utils import mutex_lock
-
 from errors import OutOfMemoryError
-from mainwindow import UI_main_window
+from mainwindow import ui_mainwindow
 
 logger = logging.getLogger('log')
 
@@ -32,7 +31,7 @@ class Memory(QtCore.QObject):
         self.table = table
         self.lock = threading.Lock()
         self.free_frames = list(range(TOTAL_MEM))
-        self.memory_edit_signal.connect(UI_main_window.slotMemoryTableEdit)
+        self.memory_edit_signal.connect(ui_mainwindow.slotMemoryTableEdit)
         self.references = 0
         self.page_faults = 0
         self.init_memory_bar()
@@ -121,4 +120,4 @@ class Memory(QtCore.QObject):
             self._edit_table_widget('allocate', i)
 
 
-memory = Memory(UI_main_window.rightBarWidget)
+memory = Memory(ui_mainwindow.rightBarWidget)
