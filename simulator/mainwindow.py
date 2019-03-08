@@ -1,8 +1,8 @@
 from PyQt5.QtWidgets import QMainWindow, QTableWidgetItem, QAbstractItemView, QHeaderView
 
 from ui import mainwindow
-from errors import *
-from settings import *
+from .errors import *
+from .settings import *
 
 
 class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
@@ -135,8 +135,8 @@ class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
 
 ui_mainwindow = MainWindow()
 
-from file import FileEditDialog, file_chain
-from pcb import PCB
-from schedule import Shortterm, Longterm
-from pool import ready_pool, job_pool
-from memory import memory
+from .file import FileEditDialog, file_chain
+from .pcb import PCB
+from .schedule import Shortterm, Longterm
+from .pool import ready_pool, job_pool
+from .memory import memory

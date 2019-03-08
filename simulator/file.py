@@ -1,9 +1,9 @@
 from PyQt5.QtWidgets import QMessageBox, QDialog
 
 from ui import file
-from pool import job_pool
-from errors import CodeFormatError
-from pcb import PCB
+from .pool import job_pool
+from .errors import CodeFormatError
+from .pcb import PCB
 
 
 class Node:

@@ -1,8 +1,8 @@
 import random
 
-from code import instructions
-from errors import *
-from memory import memory
+from .code import instructions
+from .errors import *
+from .memory import memory
 
 used_PIDs = set()
 
@@ -59,7 +59,7 @@ class PCB:
         return pid
 
     def exec_next_code(self):
-        from pool import terminated_pool, ready_pool
+        from .pool import terminated_pool, ready_pool
         code, page_num = self.codes[self.pc]
         ready_pool.slotChangePC(self)
         try:

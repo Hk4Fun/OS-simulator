@@ -6,10 +6,10 @@ from collections import namedtuple
 from PyQt5 import QtCore
 from PyQt5.QtWidgets import QTableWidgetItem
 
-from settings import *
-from utils import mutex_lock
-from errors import OutOfMemoryError
-from mainwindow import ui_mainwindow
+from .settings import *
+from .utils import mutex_lock
+from .errors import OutOfMemoryError
+from .mainwindow import ui_mainwindow
 
 logger = logging.getLogger('log')
 
@@ -75,7 +75,7 @@ class Memory(QtCore.QObject):
             return self.free_frames.pop(0)
 
     def replace_by_lru(self):
-        from pool import ready_pool
+        from .pool import ready_pool
         frames_in_memory = []
         item = namedtuple('item', ['process', 'page_num', 'pte'])
         for process in ready_pool:

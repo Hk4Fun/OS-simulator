@@ -3,8 +3,8 @@ from abc import ABCMeta, abstractmethod
 
 from PyQt5.QtCore import QThread, QTimer
 
-from settings import CPU_PROCESS_TIME
-from memory import memory
+from .settings import CPU_PROCESS_TIME
+from .memory import memory
 
 logger = logging.getLogger('log')
 
@@ -18,7 +18,7 @@ class TimerThread(QThread):
     def fromSuspend2Ready(self):
         logger.info("Resume {}".format(self.process.name))
         self.process.io_status = 'complete'
-        from pool import suspend_pool
+        from .pool import suspend_pool
         suspend_pool.remove(self.process)
         self.process.pc += 1
 
@@ -58,7 +58,7 @@ class C(Code):
 
 class Q(Code):
     def exec(self):
-        from pool import ready_pool, terminated_pool
+        from .pool import ready_pool, terminated_pool
         logger.info('{0} terminated'.format(self.process.name))
         ready_pool.remove(self.process.pid)  # remove job from waiting list
         memory.free(self.process)  # free memory
@@ -84,7 +84,7 @@ class IO(Code):
         self.timerThread.start()
 
     def fromReady2Suspend(self):
-        from pool import ready_pool, suspend_pool
+        from .pool import ready_pool, suspend_pool
         logger.info("Suspend {}".format(self.process.name))
         ready_pool.suspend(self.process)
         suspend_pool.add(self.process)

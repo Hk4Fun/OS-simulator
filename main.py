@@ -3,7 +3,7 @@ import sys
 
 from PyQt5.QtWidgets import QApplication
 
-from settings import *
+from simulator.settings import *
 
 if __name__ == '__main__':
     levels = {'error': logging.ERROR,
@@ -21,7 +21,7 @@ if __name__ == '__main__':
         logger.addHandler(fh)
 
     app = QApplication(sys.argv)
-    from mainwindow import ui_mainwindow
+    from simulator.mainwindow import ui_mainwindow
 
     ui_mainwindow.initFileUI()
     ui_mainwindow.show()

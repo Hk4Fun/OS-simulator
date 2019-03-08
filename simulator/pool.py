@@ -4,10 +4,10 @@ import logging
 from PyQt5.QtWidgets import QTableWidgetItem
 from PyQt5 import QtCore
 
-from settings import *
-from utils import mutex_lock
-from mainwindow import ui_mainwindow
-from pcb import PCB
+from .settings import *
+from .utils import mutex_lock
+from .mainwindow import ui_mainwindow
+from .pcb import PCB
 
 logger = logging.getLogger('log')
 

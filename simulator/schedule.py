@@ -2,11 +2,11 @@ import time
 
 from PyQt5.QtCore import QThread
 
-from settings import *
-from errors import *
-from memory import memory
-from pool import ready_pool, terminated_pool, job_pool, suspend_pool, io_pool
-from mainwindow import ui_mainwindow
+from .settings import *
+from .errors import *
+from .memory import memory
+from .pool import ready_pool, terminated_pool, job_pool, suspend_pool, io_pool
+from .mainwindow import ui_mainwindow
 
 
 class Shortterm(QThread):
