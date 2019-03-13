@@ -28,7 +28,7 @@ class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
         file_chain.append('only C', 2, 'C 1 0\nC 1 1\nC 1 2\nC 1 3\nC 1 1\nQ 2')
         file_chain.append('c and K', 2, 'C 1 0\nK 4 1\nC 1 2\nQ 2')
         file_chain.append('C and k', 2, 'C 4 0\nK 1 1\nC 4 0\nQ 2')
-        file_chain.append('all', 2, 'C 2 0\nR a 2 1\nC 2 2\nW a 2 15 3\nC 2 4\nQ 5')
+        file_chain.append('all', 2, 'C 2 0\nR a 2 1\nC 2 2\nW a 2 3\nC 2 4\nQ 5')
 
         self.fileList.setRowCount(file_chain.length)
         self.fileList.setColumnCount(1)

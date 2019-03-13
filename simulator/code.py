@@ -110,10 +110,9 @@ class R(IO):
 
 
 class W(IO):
-    def __init__(self, filename, exectime, size, process):
+    def __init__(self, filename, exectime, process):
         super().__init__(exectime, process)
         self.filename = filename
-        self.size = size
 
     def change_io_type(self):
         self.process.io_type = 'write file'

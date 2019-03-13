@@ -21,7 +21,6 @@ class PCB:
         self.page_table = {}
         self.references = 0
         self.page_faults = 0
-        self.code_exec_status = None  # new, running, stopped
         self.io_type = None
         self.io_status = None
 
