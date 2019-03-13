@@ -86,13 +86,28 @@
 
   文件管理模块，使用简单的单链表完成，允许创建、删除、修改和保存伪指令程序文件，手动控制程序的提交和执行
 
-## 使用方式
+## 安装启动
 
 ```
 git clone https://github.com/Hk4Fun/OS-simulator.git
+```
+
+```
 cd OS-simulator
+```
+
+```
 pip install pipenv
+```
+
+```
 pipenv install
+```
+
+```
 pipenv shell
+```
+
+```
 python main.py
 ```
