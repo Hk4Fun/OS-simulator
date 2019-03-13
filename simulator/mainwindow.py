@@ -14,6 +14,7 @@ class MainWindow(QMainWindow, mainwindow.Ui_MainWindow):
         self.rightBarWidget.verticalHeader().setDefaultSectionSize(5)
 
         # Stretch last column of the table
+        self.JobPoolTable.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.TerminatedTable.horizontalHeader().setStretchLastSection(True)
         self.ReadyTable.horizontalHeader().setStretchLastSection(True)
         self.SuspendTable.horizontalHeader().setStretchLastSection(True)

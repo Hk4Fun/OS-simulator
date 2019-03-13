@@ -22,7 +22,7 @@
    <enum>Qt::StrongFocus</enum>
   </property>
   <property name="windowTitle">
-   <string>调度模拟</string>
+   <string>OS-simulator</string>
   </property>
   <property name="unifiedTitleAndToolBarOnMac">
    <bool>true</bool>
@@ -587,8 +587,17 @@
       <attribute name="horizontalHeaderVisible">
        <bool>false</bool>
       </attribute>
+      <attribute name="horizontalHeaderDefaultSectionSize">
+       <number>125</number>
+      </attribute>
       <attribute name="verticalHeaderVisible">
        <bool>false</bool>
+      </attribute>
+      <attribute name="verticalHeaderDefaultSectionSize">
+       <number>25</number>
+      </attribute>
+      <attribute name="verticalHeaderMinimumSectionSize">
+       <number>10</number>
       </attribute>
       <column>
        <property name="text">
@@ -605,7 +614,7 @@
      <x>0</x>
      <y>0</y>
      <width>1197</width>
-     <height>23</height>
+     <height>26</height>
     </rect>
    </property>
   </widget>

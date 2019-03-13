@@ -3,6 +3,7 @@ import random
 from .code import instructions
 from .errors import *
 from .memory import memory
+from .settings import PID_RANGE
 
 used_PIDs = set()
 
@@ -16,7 +17,7 @@ class PCB:
         self.address = hex(id(self))
         self.age = 0
         self.pc = 0
-        self.codes = self.translate(codes)
+        self.codes = self._translate(codes)
         self.page_table = {}
         self.references = 0
         self.page_faults = 0
@@ -24,7 +25,7 @@ class PCB:
         self.io_type = None
         self.io_status = None
 
-    def translate(self, codes):
+    def _translate(self, codes):
         lines = codes.split('\n')
         if lines[-1][0] != 'Q':
             raise CodeFormatError()
@@ -39,10 +40,10 @@ class PCB:
         except Exception:
             raise CodeFormatError()
 
-        self.calcMemory(page_nums)
+        self._calcMemory(page_nums)
         return res
 
-    def calcMemory(self, page_nums):
+    def _calcMemory(self, page_nums):
         self.required_memory = len(set(page_nums))
 
     @staticmethod
@@ -52,10 +53,10 @@ class PCB:
 
         :return: an unique int number
         """
-        pid = random.randint(1, 10000)
+        pid = random.randint(1, PID_RANGE)
         # Avoid duplicated PID
         while pid in used_PIDs:
-            pid = random.randint(1, 10000)
+            pid = random.randint(1, PID_RANGE)
         return pid
 
     def exec_next_code(self):

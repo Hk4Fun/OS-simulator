@@ -295,14 +295,17 @@ class Ui_MainWindow(object):
         item = QtWidgets.QTableWidgetItem()
         self.rightBarWidget.setHorizontalHeaderItem(0, item)
         self.rightBarWidget.horizontalHeader().setVisible(False)
+        self.rightBarWidget.horizontalHeader().setDefaultSectionSize(125)
         self.rightBarWidget.verticalHeader().setVisible(False)
+        self.rightBarWidget.verticalHeader().setDefaultSectionSize(25)
+        self.rightBarWidget.verticalHeader().setMinimumSectionSize(10)
         self.horizontalLayout_6.addWidget(self.rightBarWidget)
         self.horizontalLayout_6.setStretch(0, 30)
         self.horizontalLayout_6.setStretch(1, 8)
         self.horizontalLayout_6.setStretch(2, 1)
         MainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QtWidgets.QMenuBar(MainWindow)
-        self.menubar.setGeometry(QtCore.QRect(0, 0, 1197, 23))
+        self.menubar.setGeometry(QtCore.QRect(0, 0, 1197, 26))
         self.menubar.setObjectName("menubar")
         MainWindow.setMenuBar(self.menubar)
         self.statusbar = QtWidgets.QStatusBar(MainWindow)
@@ -315,7 +318,7 @@ class Ui_MainWindow(object):
 
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
-        MainWindow.setWindowTitle(_translate("MainWindow", "调度模拟"))
+        MainWindow.setWindowTitle(_translate("MainWindow", "OS-simulator"))
         self.DaoshuLabel.setText(_translate("MainWindow", "Ready 道数"))
         self.StartButton.setText(_translate("MainWindow", "开始运行"))
         self.groupBox.setTitle(_translate("MainWindow", "Job"))
